@@ -12,7 +12,7 @@ convention = "numpy"
 add_select = ["D402","D415","D417"]
 
 [tool.pytest.ini_options]
-testpaths = ["docs/examples", "tests"]
+testpaths = ["srs_tools/tests"]
 addopts = [
     "--current-env",
     "--doctest-continue-on-failure",

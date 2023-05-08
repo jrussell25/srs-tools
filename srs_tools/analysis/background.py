@@ -46,7 +46,7 @@ class BackgroundEstimator:
         # TODO
         pass
 
-    def run(self, sigma: np.ndarray[int] = None, use_cv_labels=False) -> None:
+    def run(self, sigma: np.ndarray = None, use_cv_labels=False) -> None:
         """
         Run the entire background estimation pipeline
         """
@@ -147,7 +147,7 @@ class BackgroundEstimator:
             self.initial_estimate = bkgd_init
 
     @staticmethod
-    def _make_initial_estimate(images: np.ndarray, labels: np.ndarray):
+    def _make_initial_estimate(images: np.ndarray, labels: np.ndarray) -> np.ndarray:
         """
         imgs: np.ndarray with dims corresponding to SYX
         """
