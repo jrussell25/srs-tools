@@ -1,2 +1,2 @@
 # srs-tools
- Code to help automate SRS experiments
+Helpers for analyzing and acquiring SRS data.

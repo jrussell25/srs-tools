@@ -55,3 +55,9 @@ def test_constructor(dataset):
     be = BackgroundEstimator(test, labels)
 
     assert isinstance(be, BackgroundEstimator)
+
+
+def test_run(dataset):
+    test, labels, signal, bkgd, noise = dataset
+
+    BackgroundEstimator(test, labels)
