@@ -45,7 +45,7 @@ class BackgroundEstimator:
         # TODO
         raise NotImplementedError
 
-    def to_dataset(self):
+    def to_dataset(self) -> xr.Dataset:
         """
         Repackage all currently computed arrays into an xarray dataset for
         saving or downstream use.
@@ -61,7 +61,9 @@ class BackgroundEstimator:
 
         return ds
 
-    def run(self, sigma: Optional[np.ndarray] = None, use_cv_labels=False) -> None:
+    def run(
+        self, sigma: Optional[np.ndarray] = None, use_cv_labels: bool = False
+    ) -> None:
         """
         Run the entire background estimation pipeline
         """
@@ -81,10 +83,10 @@ class BackgroundEstimator:
 
     def sigma_scan(
         self,
-        sigma_list: Optional[list[int]] = None,
+        sigma_list: Optional[np.ndarray] = None,
         n_samples: Optional[int] = None,
-        return_mse_array=False,
-        force_dask=True,
+        return_mse_array: bool = False,
+        force_dask: bool = True,
     ) -> None:
 
         # set up sigma grid to search
@@ -97,7 +99,7 @@ class BackgroundEstimator:
             sigmas = sigmas.chunk({"sigma": 1, "k": -1})
 
         # setup input data to test
-        if n_samples is None:
+        if (n_samples is None) and ("T" in self.images.dims):
             warnings.warn(
                 "n_samples not provided. Running grid search on full "
                 "dataset which can be quite slow. Using 10 or fewer "
@@ -142,12 +144,14 @@ class BackgroundEstimator:
 
     # CV labels
     @property
-    def cv_labels(self):
+    def cv_labels(self) -> xr.DataArray:
         if self._cv_labels is None:
             self.make_cv_labels()
         return self._cv_labels
 
-    def make_cv_labels(self, N: int = 7, r: int = 6, seed: Optional[int] = None):
+    def make_cv_labels(
+        self, N: int = 7, r: int = 6, seed: Optional[int] = None
+    ) -> None:
         self._cv_labels = xr.apply_ufunc(
             self._make_cv_labels,
             self.labels,
@@ -164,7 +168,7 @@ class BackgroundEstimator:
     @staticmethod
     def _make_cv_labels(
         labels: np.ndarray, N: int = 7, r: int = 6, seed: Optional[int] = None
-    ):
+    ) -> np.ndarray:
         """
         Draw a quasi-uniform grid of disks skipping regions that
         already contain objects as defined in labels.
@@ -195,7 +199,7 @@ class BackgroundEstimator:
 
     # Initial estimate
     @property
-    def initial_estimate(self):
+    def initial_estimate(self) -> xr.DataArray:
         if self._initial_estimate is None:
             if self._cv_labels is None:
                 self.make_initial_estimate(use_cv_labels=False, recompute=True)
@@ -205,7 +209,7 @@ class BackgroundEstimator:
 
     def make_initial_estimate(
         self, use_cv_labels: bool = False, recompute: bool = False
-    ):
+    ) -> None:
         self._initial_estimate = xr.apply_ufunc(
             self._make_initial_estimate,
             self.images,
@@ -245,13 +249,13 @@ class BackgroundEstimator:
         return bkgd_init_est
 
     @property
-    def dilated_mask(self):
+    def dilated_mask(self) -> xr.DataArray:
         if self._dilated_mask is None:
             use_cv_labels = self._cv_labels is not None
             self.make_dilated_mask(use_cv_labels)
         return self._dilated_mask
 
-    def make_dilated_mask(self, use_cv_labels=False) -> xr.DataArray:
+    def make_dilated_mask(self, use_cv_labels: bool = False) -> None:
         inpt = self.labels > 0
         if use_cv_labels:
             inpt = inpt | (self.cv_labels > 0)
@@ -277,12 +281,18 @@ class BackgroundEstimator:
 
     # LPF
     @property
-    def background_estimate(self):
+    def background_estimate(self) -> xr.DataArray:
         if self._background_estimate is None:
-            self.lpf()
+            if self.sigma_opt is None:
+                raise ValueError(
+                    "Did not find sigma_opt. Set manually "
+                    "as xr.Datarray([sy,sx], dims='k') or "
+                    "use BackgroundEstimator.sigma_scan"
+                )
+            self.lpf(self.sigma_opt)
         return self._background_estimate
 
-    def lpf(self, sigma: xr.DataArray):
+    def lpf(self, sigma: xr.DataArray) -> None:
 
         self._background_estimate = xr.apply_ufunc(
             self._lpf,
@@ -304,7 +314,12 @@ class BackgroundEstimator:
         )
 
     @staticmethod
-    def _lpf(im: np.ndarray, labels: np.ndarray, init: np.ndarray, sigma=(3, 24)):
+    def _lpf(
+        im: np.ndarray,
+        labels: np.ndarray,
+        init: np.ndarray,
+        sigma: Optional[tuple[int, int]] = (3, 24),
+    ) -> np.ndarray:
         mask2d = ndi.binary_dilation(labels > 0, structure=disk(3), iterations=(3))
         arr = np.array(im)
         arr[mask2d] = init[mask2d]  # np.median(yin[mask])

@@ -14,7 +14,7 @@ def dataset(
     T: int = 5,
     im_shape: tuple[int, int] = (512, 512),
     seed: Optional[int] = None,
-):
+) -> list[xr.DataArray]:
     rng = np.random.default_rng(seed=seed)
 
     full_size = (S, T, *im_shape)
@@ -46,10 +46,10 @@ def dataset(
 
     test = signal + bkgd + noise
 
-    return test, labels, signal, bkgd, noise
+    return [test, labels, signal, bkgd, noise]
 
 
-def test_constructor(dataset):
+def test_constructor(dataset: list[xr.DataArray]) -> None:
     test, labels, signal, bkgd, noise = dataset
 
     be = BackgroundEstimator(test, labels)
@@ -57,7 +57,7 @@ def test_constructor(dataset):
     assert isinstance(be, BackgroundEstimator)
 
 
-def test_run(dataset):
+def test_run(dataset: list[xr.DataArray]) -> None:
     test, labels, signal, bkgd, noise = dataset
 
     BackgroundEstimator(test, labels)

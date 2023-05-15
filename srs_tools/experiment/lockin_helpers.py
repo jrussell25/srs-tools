@@ -1,10 +1,11 @@
 import warnings
+from typing import Optional
 
 import dask.dataframe as dd
 import pandas as pd
 
 
-def get_sample_key(keys):
+def get_sample_key(keys: list[str]) -> Optional[str]:
     count = 0
     out = None
     for k in keys:
@@ -16,12 +17,14 @@ def get_sample_key(keys):
         raise ValueError("Did not find a key containing 'sample'")
     elif count > 1:
         warnings.warn("Found multiple sample keys in data. Return last one")
+
     return out
 
 
-def parse_lockin_data(data):
+def parse_lockin_data(data: dict) -> tuple[pd.DataFrame, bool]:
     # for now assume there is only one demodulator that we are subscribed to
-    s_key = get_sample_key(data.keys())
+    keys = list(data.keys())
+    s_key = get_sample_key(keys)
     sample_dict = dict(data[s_key])
     checks = sample_dict.pop("time")
     missing_data = checks["dataloss"]
@@ -36,11 +39,13 @@ def parse_lockin_data(data):
     return sample, missing_data
 
 
-def dump_data(data, filename, key):
+def dump_data(data: pd.DataFrame, filename: str, key: str) -> None:
     data.to_hdf(filename, key, complevel=9, complib="blosc:lz4", format="table")
 
 
-def load_lockin_data(filename=None, ddf=None):
+def load_lockin_data(
+    filename: Optional[str] = None, ddf: Optional[dd.DataFrame] = None
+) -> dd.DataFrame:
 
     if ddf is None:
         ddf = dd.read_hdf(
