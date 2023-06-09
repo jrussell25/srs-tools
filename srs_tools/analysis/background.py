@@ -1,5 +1,6 @@
+from __future__ import annotations
+
 import warnings
-from typing import Optional
 
 import numpy as np
 import scipy.ndimage as ndi
@@ -49,6 +50,14 @@ class BackgroundEstimator:
         """
         Repackage all currently computed arrays into an xarray dataset for
         saving or downstream use.
+
+        Returns
+        -------
+        ds: xr.Dataset
+            Dataset containing the input images ('images'), input labels ('labels'),
+            cross validation labels ('cv_labels'), initial estimate formed before
+            smoothing ('initial_estimate'), and final estimate ('background_estimate').
+            Skips any entries that have not yet been computed in this object.
         """
         ds = xr.Dataset()
         ds["images"] = self.images
@@ -61,33 +70,61 @@ class BackgroundEstimator:
 
         return ds
 
-    def run(
-        self, sigma: Optional[np.ndarray] = None, use_cv_labels: bool = False
-    ) -> None:
+    def run(self, sigma: np.ndarray | None = None) -> None:
         """
-        Run the entire background estimation pipeline
+        Convenience function to run the entire background estimation pipeline.
+
+        Parameters
+        ----------
+        sigma: None or np.ndarray
+            If none, check whether sigma_opt has been populated. If so, use sigma_opt
+            for smoothing, otherwise run BackgroundEstimator.sigma_scan with default
+            values to determine optimal sigma.
+
+        Returns
+        -------
+        None
+            Populates BackgroundEstimator.background_estimate with final estimate.
         """
 
-        if use_cv_labels:
-            self.make_cv_labels()
-
-        if self.sigma_opt is None and sigma is None:
-            warnings.warn(
-                "No sigma provided and no sigma_opt found. Running "
-                "grid search to determine optimal kernel parameters."
-            )
-
-        self.sigma_scan()
-
-        self.lpf(self.sigma_opt)
+        self.cv_labels()
+        # ensure cv_labels have been created
+        self.sigma_scan()  # determine optimal kernel parameters
+        self.lpf(self.sigma_opt)  # smooth with optimal kernel
 
     def sigma_scan(
         self,
-        sigma_list: Optional[np.ndarray] = None,
-        n_samples: Optional[int] = None,
-        return_mse_array: bool = False,
+        sigma_list: np.ndarray | None = None,
+        n_samples: int | None = None,
+        keep_mse_array: bool = False,
         force_dask: bool = True,
     ) -> None:
+        """
+        Test the background estimation for a grid of sigma values and determine the
+        optimal value by choosing the one that minimizes the mean squared error of the
+        CV regions.
+
+        Parameters
+        ----------
+        sigma_list: np.ndarray[int] or None
+            1-d array of values to use for grid search. The same values will be used for
+            both dimensions of the kernel to form the grid.
+        n_samples: int or None
+            Optional number of time points to sample and use for mse computation.
+            Recommended to use 10 or fewer.
+        keep_mse_array: bool default False
+            Whether or not to retain the mean-squared errors for each sigma value
+            which can be used to visualize the loss landscape. If true, populates
+            BackgroundEstimator.mse_grid
+        force_dask: bool default True
+            If true, cast the sigma grid as a dask array to force parallelization across
+            each sigma value. If false, sigmas will be backed by numpy and computation
+            will occur only in the main process.
+
+        Returns
+        -------
+        None
+        """
 
         # set up sigma grid to search
         if sigma_list is None:
@@ -97,6 +134,9 @@ class BackgroundEstimator:
         sigmas = xr.DataArray(sigma_grid.reshape(2, -1).T, dims=["sigma", "k"])
         if force_dask:
             sigmas = sigmas.chunk({"sigma": 1, "k": -1})
+
+        self.cv_labels
+        # Ensure cv labels are populated before forming mask
 
         # setup input data to test
         if (n_samples is None) and ("T" in self.images.dims):
@@ -133,14 +173,14 @@ class BackgroundEstimator:
         )
         diff_imgs = cv_bkgd - imgs
         sq_errs = (diff_imgs * diff_imgs).transpose("sigma", ...)
-        mse = sq_errs.where(self.cv_labels > 0).mean(self.images.dims)
+        mse = sq_errs.where(mask > 0).mean(imgs.dims)
 
         mse.load()
 
         self.sigma_opt = sigmas[mse.data.argmin()]
 
-        if return_mse_array:
-            return mse.data.reshape(sigma_grid.shape[1:]).T
+        if keep_mse_array:
+            self.mse_grid = mse.data.reshape(sigma_grid.shape[1:]).T
 
     # CV labels
     @property
@@ -149,9 +189,7 @@ class BackgroundEstimator:
             self.make_cv_labels()
         return self._cv_labels
 
-    def make_cv_labels(
-        self, N: int = 7, r: int = 6, seed: Optional[int] = None
-    ) -> None:
+    def make_cv_labels(self, N: int = 7, r: int = 6, seed: int | None = None) -> None:
         self._cv_labels = xr.apply_ufunc(
             self._make_cv_labels,
             self.labels,
@@ -167,7 +205,7 @@ class BackgroundEstimator:
 
     @staticmethod
     def _make_cv_labels(
-        labels: np.ndarray, N: int = 7, r: int = 6, seed: Optional[int] = None
+        labels: np.ndarray, N: int = 7, r: int = 6, seed: int | None = None
     ) -> np.ndarray:
         """
         Draw a quasi-uniform grid of disks skipping regions that
@@ -318,7 +356,7 @@ class BackgroundEstimator:
         im: np.ndarray,
         labels: np.ndarray,
         init: np.ndarray,
-        sigma: Optional[tuple[int, int]] = (3, 24),
+        sigma: tuple[int, int] | None = (3, 24),
     ) -> np.ndarray:
         mask2d = ndi.binary_dilation(labels > 0, structure=disk(3), iterations=(3))
         arr = np.array(im)
