@@ -270,8 +270,10 @@ class BackgroundEstimator:
         nan_masked[mask] = np.nan
         scales = np.nanmedian(nan_masked, axis=(-1, -2), keepdims=True)
         nan_masked = nan_masked / scales
-        bkgd_init_est = np.nanmedian(nan_masked, axis=0) * scales
-
+        scale_est = np.nanmedian(nan_masked, axis=0) * scales
+        bkgd_init_est = np.array(images)
+        bkgd_init_est[mask] = scale_est[mask]
+        
         if np.any(np.isnan(bkgd_init_est)):
             isnan = np.all(np.isnan(bkgd_init_est), axis=0)
             positions = np.array(np.nonzero(~isnan)).T
