@@ -24,7 +24,6 @@ class MicroscopyProgbars:
         display(self.pbar_vbox)
 
     def update_count(self, frame_count: int) -> None:
-
         full = frame_count
         for d, s in self.sizes.iloc[::-1].items():
             self.count[d] = full % s

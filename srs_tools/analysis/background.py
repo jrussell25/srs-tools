@@ -87,7 +87,7 @@ class BackgroundEstimator:
             Populates BackgroundEstimator.background_estimate with final estimate.
         """
 
-        self.cv_labels()
+        self.cv_labels
         # ensure cv_labels have been created
         self.sigma_scan()  # determine optimal kernel parameters
         self.lpf(self.sigma_opt)  # smooth with optimal kernel
@@ -273,7 +273,7 @@ class BackgroundEstimator:
         scale_est = np.nanmedian(nan_masked, axis=0) * scales
         bkgd_init_est = np.array(images)
         bkgd_init_est[mask] = scale_est[mask]
-        
+
         if np.any(np.isnan(bkgd_init_est)):
             isnan = np.all(np.isnan(bkgd_init_est), axis=0)
             positions = np.array(np.nonzero(~isnan)).T
@@ -316,7 +316,6 @@ class BackgroundEstimator:
     def _make_dilated_mask(
         im: np.ndarray, structure: np.ndarray, iters: int
     ) -> np.ndarray:
-
         return ndi.binary_dilation(im, structure=structure, iterations=iters)
 
     # LPF
@@ -333,7 +332,6 @@ class BackgroundEstimator:
         return self._background_estimate
 
     def lpf(self, sigma: xr.DataArray) -> None:
-
         self._background_estimate = xr.apply_ufunc(
             self._lpf,
             self.images,

@@ -46,7 +46,6 @@ def dump_data(data: pd.DataFrame, filename: str, key: str) -> None:
 def load_lockin_data(
     filename: Optional[str] = None, ddf: Optional[dd.DataFrame] = None
 ) -> dd.DataFrame:
-
     if ddf is None:
         ddf = dd.read_hdf(
             filename, key="*", sorted_index=True

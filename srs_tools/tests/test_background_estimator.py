@@ -60,4 +60,7 @@ def test_constructor(dataset: list[xr.DataArray]) -> None:
 def test_run(dataset: list[xr.DataArray]) -> None:
     test, labels, signal, bkgd, noise = dataset
 
-    BackgroundEstimator(test, labels)
+    be = BackgroundEstimator(test, labels)
+    be.run()
+    print(be.sigma_opt)
+    assert True
