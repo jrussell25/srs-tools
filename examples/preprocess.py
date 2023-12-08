@@ -2,29 +2,33 @@ import sys
 from time import perf_counter
 
 import microutil as mu
+import numpy as np
+import scipy.ndimage as ndi
 import xarray as xr
 from aicsimageio.readers import TiffGlobReader
 from cellpose.models import Cellpose
 from dask.distributed import Client
+from skimage.morphology import disk
 
 from srs_tools import io
 
 if __name__ == "__main__":
-    # parse arguments - tiff_path, output_dataset_path, fov_id
+    t_start = perf_counter()
+
+    #############
+    # READ DATA #
+    #############
+    t0 = perf_counter()
+
     tiff_path, dataset_path, fov = sys.argv[1:]
+    print(f"Reading data from disk - Processing FOV {fov}", flush=True)
 
     position_slice = slice(int(fov), int(fov) + 1)
 
-    # start a dask thread-based cluster
     client = Client(processes=False)
 
-    # validate output_path - initialize from process 0
-    # out_path = validate_output_path(out_path)
-
-    # build indexer
     indexer = io.get_srs_indexer(tiff_path)
 
-    # construct readers -> zarr dataset
     reader = TiffGlobReader(indexer["filenames"], indexer[list("STCZ")])
     reader.set_scene(int(fov))
 
@@ -32,7 +36,6 @@ if __name__ == "__main__":
 
     imgs = reader.xarray_dask_data.drop_vars("C")
     # imgs["C"] = ["fluo", "bf", "srs"] # cant have coords if we want to write regions
-    # separately as we do below
 
     mu.save_dataset(
         imgs.to_dataset(name="images"),
@@ -40,6 +43,9 @@ if __name__ == "__main__":
         position_slice,
         scene_size=n_scenes,
     )
+
+    t1 = perf_counter()
+    print(f"Data loaded -- {t1-t0:0.2f} seconds", flush=True)
 
     ############
     # CELLPOSE #
@@ -62,7 +68,7 @@ if __name__ == "__main__":
 
     masks, flows, styles = model.cp.eval(
         image_list,
-        batch_size=128,  # believe this does not actually do anything?
+        batch_size=512,  # believe this does not actually do anything?
         channels=channels,
         diameter=15,
         flow_threshold=0.6,
@@ -70,8 +76,6 @@ if __name__ == "__main__":
         normalize=False,
         tile=False,
     )
-
-    print("Saving Cellpose outputs", flush=True)
 
     cp_ds = mu.cellpose.make_cellpose_dataset(masks, flows, styles)
     cp_ds = cp_ds.rename({x: "cyto_" + x for x in list(cp_ds)})
@@ -92,13 +96,15 @@ if __name__ == "__main__":
 
     seg_imgs.load()
 
-    mu.save_dataset(seg_imgs.to_dataset(name="nuc"), position_slice=position_slice)
+    mu.save_dataset(
+        seg_imgs.to_dataset(name="nuc"), dataset_path, position_slice=position_slice
+    )
 
     image_list = [im.data for im in seg_imgs]
 
     masks, flows, styles = model.cp.eval(
         image_list,
-        batch_size=128,  # believe this does not actually do anything?
+        batch_size=512,  # believe this does not actually do anything?
         channels=channels,
         diameter=8,
         flow_threshold=0.75,
@@ -106,7 +112,6 @@ if __name__ == "__main__":
         normalize=False,
         tile=False,
     )
-    print("Saving Cellpose outputs", flush=True)
 
     cp_ds = mu.cellpose.make_cellpose_dataset(masks, flows, styles)
     cp_ds = cp_ds.rename({x: "nuc_" + x for x in list(cp_ds)})
@@ -114,6 +119,35 @@ if __name__ == "__main__":
 
     t1 = perf_counter()
     print(f"Cellpose nuc segmentation complete -- {t1-t0:0.2f} seconds", flush=True)
+
+    ########################
+    # CLASSICAL CORRECTION #
+    ########################
+
+    print("Correcting cellpose nuclear segmenation")
+    t0 = perf_counter()
+    thresh = mu.calc_thresholds(seg_imgs)
+    thresh_masks = seg_imgs > (0.5 * thresh)
+
+    missing_nuc = xr.zeros_like(cp_ds["nuc_cp_masks"])
+    labels = np.copy(cp_ds["nuc_cp_masks"].data)
+    for i, (m_cp, m_thresh) in enumerate(
+        zip(cp_ds["nuc_cp_masks"].data, thresh_masks.data)
+    ):
+        offset = np.max(m_cp)
+        missing = ndi.binary_opening(m_thresh & (m_cp == 0), structure=disk(2))
+        missing_labels, _ = ndi.label(missing, output="u2")
+        missing_nuc.data[i] = missing_labels
+        missing_labels[missing_labels > 0] += offset
+        labels[i] += missing_labels
+
+    mask_ds = xr.DataArray(labels, dims=list("TYX")).to_dataset(name="combo_masks")
+    mask_ds["thresh_masks"] = thresh_masks
+    mask_ds["missing_nuc"] = missing_nuc
+    mu.save_dataset(mask_ds, dataset_path, position_slice)
+
+    t1 = perf_counter()
+    print(f"Finished post-processing nuclear masks -- {t1-t0:0.2f}", flush=True)
 
     ##########
     # BTRACK #
@@ -124,7 +158,7 @@ if __name__ == "__main__":
 
     config_file = "particle_config.json"
     updated_masks = mu.btrack.gogogo_btrack(
-        cp_ds["cp_masks"].data,
+        labels,
         config_file,
         15,
         intensity_image=seg_imgs.data,
@@ -136,4 +170,8 @@ if __name__ == "__main__":
 
     t1 = perf_counter()
     print(f"Cell tracking complete -- {t1-t0:0.2f} seconds", flush=True)
-    print("Done", flush=True)
+
+    # TODO - Match cyto labels up with cell labels
+    # TODO - Single cell quantities (avg, com, area)
+
+    print(f"Preprocessing complete -- Total time {t1-t_start:0.2f} seconds", flush=True)
