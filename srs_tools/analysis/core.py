@@ -1,6 +1,9 @@
 import numpy as np
 import pandas as pd
 from scipy.optimize import curve_fit
+from scipy.sparse import csr_array
+from scipy.sparse.csgraph import connected_components
+from scipy.spatial import KDTree
 from tqdm import tqdm
 
 
@@ -72,3 +75,55 @@ def fit_all_exponentials(
         all_params.loc[idx] = fit_exponential(x, y, p0)
 
     return all_params
+
+
+def trace_lineages(tracks_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Indentify individual mother daughter pairs and then identify
+    the lineage i.e. oldest observed ancestor of each cell.
+
+    Parameters
+    ----------
+    tracks_df : pd.DataFrame
+        Dataframe containing center of mass info (ideally from nuclear localizations)
+        for cells in **in a single FOV**. Should have "T" and "CellID" in index.
+        See Note below for applying to multiple FOVs
+
+    Returns
+    -------
+    lineage_info : pd.DataFrame
+
+    Note
+    ----
+    It is a nice oneliner to do this for all FOVs in a dataset:
+    pd.concat({s:trace_lineages(df.loc[s]) for s in df.index.unique("S")}, names=["S"])
+    """
+    first_frames = tracks_df.reset_index("T").groupby("CellID")["T"].min()
+
+    row_ind = first_frames.loc[first_frames == 0].index.tolist()
+    col_ind = first_frames.loc[first_frames == 0].index.tolist()
+    for t, s in first_frames.groupby(first_frames):
+        if t > 0:
+            ftracks = tracks_df.loc[t]
+            new_ids = s.index
+            new = ftracks.loc[new_ids]
+            old = ftracks.drop(new_ids)
+
+            dists, candidate_idx = KDTree(old.values).query(
+                new.values, distance_upper_bound=25
+            )
+            for d, m in zip(new.index.values, candidate_idx):
+                row_ind.append(d)
+                if m < len(old):
+                    col_ind.append(m)
+                else:  # map anonymous cells to themselves
+                    col_ind.append(d)
+
+    N = first_frames.index.max() + 1  # values.shape[0]
+    adj = csr_array(
+        (np.ones((len(row_ind),), dtype="u2"), (row_ind, col_ind)), shape=(N, N)
+    )
+    n, components = connected_components(adj)
+    return pd.DataFrame(
+        {"CellID": row_ind, "mother": col_ind, "lineage": components[row_ind]}
+    ).set_index("CellID")
