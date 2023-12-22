@@ -1,7 +1,8 @@
 import glob
 import re
-from pathlib import Path
 import xml.etree.ElementTree as ET
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -65,37 +66,42 @@ def zarrify_tiffs(tiff_path: str | Path, zarr_path: str | Path) -> xr.Dataset:
     ds = xr.open_zarr(zarr_path)
     return ds
 
+
 def get_metadata_tables(expt_path: str | Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+    files = glob.glob(str(Path(expt_path) / "*_Properties.xml"))
 
-    files = glob.glob(str(Path(expt_path)/"*_Properties.xml"))
-    
-    timestamps = []
-    dim_data = []
-    for s,file in enumerate(files):
+    ts_list = []
+    dd_list = []
+    for s, file in enumerate(files):
         parsed = ET.parse(file)
-        s,ldm = (int(x) for x in re.findall("(\d+)", Path(file).name))
+        s, ldm = (int(x) for x in re.findall(r"(\d+)", Path(file).name))
         mode = re.findall("fluo|srs", Path(file).name)[0]
-        
-        for x in parsed.iter("TimeStamp"):
-            d = x.attrib
-            d["L"] = ldm
-            d['S'] = s
-            d['mode'] = mode
-            timestamps.append(d)
-    
-        for x in parsed.iter("DimensionDescription"):
-            d = x.attrib
-            d["L"] = ldm
-            dim_data.append(d)
-    
-    timestamps = pd.DataFrame(timestamps)
-    timestamps['T'] = timestamps.groupby(["S","mode"])["L"].rank(method='dense').astype(int) -1
 
-    dim_data = pd.DataFrame(dim_data).set_index(['L','DimID']).unstack('DimID')
-    
-    timestamps['datetime'] = timestamps.apply(
-        lambda df: pd.to_datetime(df['Date'] + " " + df['Time']) + pd.to_timedelta(int(df['MiliSeconds']), unit="ms"),axis=1)
-    
-    timestamps = timestamps.sort_values('datetime')
-    
+        for x in parsed.iter("TimeStamp"):
+            ts: dict[str, Any] = x.attrib
+            ts["L"] = ldm
+            ts["S"] = s
+            ts["mode"] = mode
+            ts_list.append(ts)
+
+        for x in parsed.iter("DimensionDescription"):
+            dd: dict[str, Any] = x.attrib
+            dd["L"] = ldm
+            dd_list.append(dd)
+
+    timestamps = pd.DataFrame(ts_list)
+    timestamps["T"] = (
+        timestamps.groupby(["S", "mode"])["L"].rank(method="dense").astype(int) - 1
+    )
+
+    dim_data = pd.DataFrame(dd_list).set_index(["L", "DimID"]).unstack("DimID")
+
+    timestamps["datetime"] = timestamps.apply(
+        lambda df: pd.to_datetime(df["Date"] + " " + df["Time"])
+        + pd.to_timedelta(int(df["MiliSeconds"]), unit="ms"),
+        axis=1,
+    )
+
+    timestamps = timestamps.sort_values("datetime")
+
     return timestamps, dim_data
