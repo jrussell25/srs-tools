@@ -44,8 +44,8 @@ if __name__ == "__main__":
         be = BackgroundEstimator(srs, labels["labels"])
         be.cv_labels
         be.sigma_scan(n_samples=10)
-        be.sigma_opt.load()
-        print(f"--> Found sigma_opt={be.sigma_opt.data}", flush=True)
+        be.sigma_opt.load()  # type: ignore
+        print(f"--> Found sigma_opt={be.sigma_opt.data}", flush=True)  # type: ignore
 
         _ = be.background_estimate.to_dataset(name="bkgd_est").to_zarr(
             dataset_path, mode="a"
