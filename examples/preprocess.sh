@@ -4,12 +4,8 @@
 #SBATCH -t 15
 #SBATCH -p serial_requeue,shared
 #SBATCH --mem-per-cpu 4G
-#SBATCH -o logs/output_zarr.txt
-#SBATCH -e logs/errors_zarr.txt
-
-tiffpath=/n/hekstra_lab/projects/microscopy/2023-12-06/Sequence/
-
-export zarrpath=/n/hekstra_lab/projects/microscopy/2023-12-06.zarr
+#SBATCH -o logs/zarr_%j.txt
+#SBATCH -e logs/zarr_%j.txt
 
 python setup_zarr.py $tiffpath $zarrpath
 

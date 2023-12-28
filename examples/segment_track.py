@@ -6,6 +6,7 @@ import numpy as np
 import scipy.ndimage as ndi
 import xarray as xr
 from cellpose.models import Cellpose
+from dask.distributed import Client
 from fast_overlap import overlap
 from skimage.morphology import disk
 from skimage.util import map_array
@@ -23,6 +24,8 @@ if __name__ == "__main__":
     fov = int(sys.argv[2])
 
     position_slice = slice(fov, fov + 1)
+
+    client = Client(processes=False)
 
     imgs = xr.open_zarr(dataset_path)["images"].isel(S=fov)
 
@@ -182,17 +185,17 @@ if __name__ == "__main__":
     z_slices = (cyto_cp_masks > 0).sum(list("YX")).argmax("Z")
     cyto_labels = cyto_cp_masks.isel(Z=z_slices).copy().data
     for t in range(imgs.sizes["T"]):
-        nuc = bt_ds.labels.data[t]
+        nuc = np.copy(updated_masks[t])
         cyto = cyto_labels[t]
         cyto_ids = np.unique(cyto)
 
         # compute overlapse and pare the array down to eliminate rows from missing cells
-        o = overlap(cyto_labels[t], nuc)[cyto_ids]
-        map_array(cyto_labels[t], cyto_ids, o.argmax(-1), out=cyto_labels[t])
+        o = overlap(cyto, nuc)[cyto_ids]
+        map_array(cyto, cyto_ids, o.argmax(-1), out=cyto_labels[t])
 
     cyto_labels_ds = xr.zeros_like(bt_ds[["labels"]]).rename({"labels": "cyto_labels"})
-    cyto_labels_ds["cyto_labels"].data = cyto_labels
-    cyto_labels_ds.expand_dims("S").to_zarr(dataset_path, region={"S": position_slice})
+    cyto_labels_ds["cyto_labels"].data[0] = cyto_labels
+    cyto_labels_ds.to_zarr(dataset_path, region={"S": position_slice})
 
     t1 = perf_counter()
     print(f"Alignment complete -- {t1-t0:0.2f} seconds", flush=True)
