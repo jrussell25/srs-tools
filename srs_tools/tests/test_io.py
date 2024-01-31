@@ -12,7 +12,8 @@ from srs_tools.io import get_srs_indexer, zarrify_tiffs
 
 @pytest.fixture
 def tiff_dataset(tmp_path: Path) -> tuple[pd.DataFrame, xr.Dataset]:
-    idxr = pd.read_csv("indexer_ref.csv")
+    cwd = Path(__file__).parent.resolve()
+    idxr = pd.read_csv(cwd / "indexer_ref.csv")
 
     S = 5
     T = 4
