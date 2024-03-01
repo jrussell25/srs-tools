@@ -1,12 +1,39 @@
 import numpy as np
 import pandas as pd
+import scipy.ndimage as ndi
 import xarray as xr
 from fast_overlap import overlap
+from skimage.morphology import disk
 from skimage.util import map_array
 
 
-def correct_cellpose_with_thresh(imgs: xr.DataArray, labels: xr.DataArray) -> None:
-    pass
+def correct_cellpose_with_thresh(
+    cp_masks: xr.DataArray, thresh_masks: xr.DataArray
+) -> xr.DataArray:
+    """
+    Add segmentation masks for regions missed by cellpose but found via thresholding.
+
+    Parameters
+    ----------
+    cp_masks: xr.DataArray (dims=TYX)
+        Segmentation masks predicted by cellpose
+    thresh_masks: xr.DataArray (dim=TYX)
+        Thresholded image.
+
+    Returns
+    -------
+    labels: xr.DataArray
+        Updated segmentation masks
+    """
+    labels = cp_masks.copy()
+    for i, (m_cp, m_thresh) in enumerate(zip(cp_masks.data, thresh_masks.data)):
+        offset = np.max(m_cp)
+        missing = ndi.binary_opening(m_thresh & (m_cp == 0), structure=disk(2))
+        missing_labels, _ = ndi.label(missing, output="u2")
+        missing_labels[missing_labels > 0] += offset
+        labels.data[i] += missing_labels
+
+    return labels
 
 
 def squash_3d_segmentation(
@@ -61,9 +88,27 @@ def squash_3d_segmentation(
 
 
 def _match_labels(nuc_labels: np.ndarray, cyto_labels: np.ndarray) -> np.ndarray:
+    """
+    Map between nuclear and cytoplasmic segmentation regions by finding the nuclei
+    which maximally overlap with each cell.
+
+    Parameters
+    ----------
+    nuc_labels: np.ndarray
+        Single segmented image of nuclei
+    cyto_labels: np.ndarray
+        Single segmented image of cells
+
+    Returns
+    --------
+    matched: np.ndarray
+        Array containing cellular segmentations relabeled to match
+        nuclear labels. NOTE cells that do not contain a segmented nucleus
+        will be eliminated.
+    """
     cyto_ids = np.unique(cyto_labels)
-    o = overlap(cyto_labels, nuc_labels)[cyto_ids]
-    return map_array(cyto_labels, cyto_ids, o.argmax(-1))
+    o = overlap(cyto_labels.copy(), nuc_labels.copy())[cyto_ids]
+    return map_array(cyto_labels.copy(), cyto_ids.copy(), o.argmax(-1).copy())
 
 
 def match_labels(cyto_labels: xr.DataArray, nuc_labels: xr.DataArray) -> xr.DataArray:
