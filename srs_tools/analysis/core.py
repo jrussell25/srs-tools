@@ -99,9 +99,14 @@ def trace_lineages(tracks_df: pd.DataFrame) -> pd.DataFrame:
     pd.concat({s:trace_lineages(df.loc[s]) for s in df.index.unique("S")}, names=["S"])
     """
     first_frames = tracks_df.reset_index("T").groupby("CellID")["T"].min()
+    last_div = pd.Series(first_frames, copy=True)
 
     row_ind = first_frames.loc[first_frames == 0].index.tolist()
     col_ind = first_frames.loc[first_frames == 0].index.tolist()
+
+    idt = [0 for _ in row_ind]
+    md_dist = [0.0 for _ in row_ind]
+
     for t, s in first_frames.groupby(first_frames):
         if t > 0:
             ftracks = tracks_df.loc[t]
@@ -112,12 +117,20 @@ def trace_lineages(tracks_df: pd.DataFrame) -> pd.DataFrame:
             dists, candidate_idx = KDTree(old.values).query(
                 new.values, distance_upper_bound=25
             )
-            for d, m in zip(new.index.values, candidate_idx):
+            for d, m, dist in zip(new.index.values, candidate_idx, dists):
                 row_ind.append(d)
                 if m < len(old):
-                    col_ind.append(m)
+                    m_id = old.index.values[m]
+                    col_ind.append(m_id)
+                    md_dist.append(dist)
+                    tlast = last_div.loc[m_id]
+                    idt.append(t - tlast)
+                    last_div.loc[m_id] = t
                 else:  # map anonymous cells to themselves
                     col_ind.append(d)
+                    last_div.loc[d] = t
+                    idt.append(0)
+                    md_dist.append(0.0)
 
     N = first_frames.index.max() + 1  # values.shape[0]
     adj = csr_array(
@@ -125,5 +138,11 @@ def trace_lineages(tracks_df: pd.DataFrame) -> pd.DataFrame:
     )
     n, components = connected_components(adj)
     return pd.DataFrame(
-        {"CellID": row_ind, "mother": col_ind, "lineage": components[row_ind]}
+        {
+            "CellID": row_ind,
+            "mother": col_ind,
+            "lineage": components[row_ind],
+            "idt": idt,
+            "dist": md_dist,
+        }
     ).set_index("CellID")
