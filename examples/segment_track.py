@@ -3,13 +3,11 @@ from time import perf_counter
 
 import microutil as mu
 import numpy as np
-import scipy.ndimage as ndi
 import xarray as xr
 from cellpose.models import Cellpose
 from dask.distributed import Client
-from fast_overlap import overlap
-from skimage.morphology import disk
-from skimage.util import map_array
+
+from srs_tools import correct_cellpose_with_thresh
 
 if __name__ == "__main__":
     t_start = perf_counter()
@@ -131,15 +129,7 @@ if __name__ == "__main__":
     t0 = perf_counter()
     thresh_masks = xr.open_zarr(dataset_path)["thresh_mask"].isel(S=fov).load()
 
-    labels = np.copy(cp_ds["nuc_cp_masks"].data)
-    for i, (m_cp, m_thresh) in enumerate(
-        zip(cp_ds["nuc_cp_masks"].data, thresh_masks.data)
-    ):
-        offset = np.max(m_cp)
-        missing = ndi.binary_opening(m_thresh & (m_cp == 0), structure=disk(2))
-        missing_labels, _ = ndi.label(missing, output="u2")
-        missing_labels[missing_labels > 0] += offset
-        labels[i] += missing_labels
+    labels = correct_cellpose_with_thresh(cp_ds["nuc_cp_masks"], thresh_masks)
 
     mask_ds = (
         xr.DataArray(labels, dims=list("TYX"))
@@ -174,30 +164,5 @@ if __name__ == "__main__":
 
     t1 = perf_counter()
     print(f"Cell tracking complete -- {t1-t0:0.2f} seconds", flush=True)
-
-    ######################
-    # CYTO-NUC ALIGNMENT #
-    ######################
-
-    print("Starting cyto-nuc alignment", flush=True)
-    t0 = perf_counter()
-
-    z_slices = (cyto_cp_masks > 0).sum(list("YX")).argmax("Z")
-    cyto_labels = cyto_cp_masks.isel(Z=z_slices).copy().data
-    for t in range(imgs.sizes["T"]):
-        nuc = np.copy(updated_masks[t])
-        cyto = cyto_labels[t]
-        cyto_ids = np.unique(cyto)
-
-        # compute overlapse and pare the array down to eliminate rows from missing cells
-        o = overlap(cyto, nuc)[cyto_ids]
-        map_array(cyto, cyto_ids, o.argmax(-1), out=cyto_labels[t])
-
-    cyto_labels_ds = xr.zeros_like(bt_ds[["labels"]]).rename({"labels": "cyto_labels"})
-    cyto_labels_ds["cyto_labels"].data[0] = cyto_labels
-    cyto_labels_ds.to_zarr(dataset_path, region={"S": position_slice})
-
-    t1 = perf_counter()
-    print(f"Alignment complete -- {t1-t0:0.2f} seconds", flush=True)
 
     print(f"Preprocessing complete -- Total time {t1-t_start:0.2f} seconds", flush=True)
