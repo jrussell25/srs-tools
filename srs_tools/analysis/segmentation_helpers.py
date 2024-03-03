@@ -58,7 +58,8 @@ def squash_3d_segmentation(
     # regions where a cell was called in one z plane but not the max plane
     missed = (cyto_masks_3d > 0).any("Z").where(cyto_labels == 0, other=0).astype("u2")
 
-    for t in range(cyto_masks_3d.sizes["T"]):
+    # for t in range(cyto_masks_3d.sizes["T"]):
+    for t in nuc_coms.index.get_level_values("T").unique():
         mask = missed.data[t]
         nuc_idx = nuc_coms.loc[t][["Y", "X"]].round().astype(int)
 
