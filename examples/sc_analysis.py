@@ -83,7 +83,7 @@ if __name__ == "__main__":
     print("Starting cyto-nuc alignment", flush=True)
     t0 = perf_counter()
 
-    cyto_labels = match_labels(cyto_masks, ds.labels)
+    cyto_labels = match_labels(ds.labels, cyto_masks)
     cyto_labels.to_dataset(name="cyto_labels").to_zarr(dataset_path, mode="a")
     t1 = perf_counter()
     print(f"Alignment complete -- {t1-t0:0.2f} seconds", flush=True)

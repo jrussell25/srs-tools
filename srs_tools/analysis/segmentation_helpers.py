@@ -112,11 +112,11 @@ def _match_labels(nuc_labels: np.ndarray, cyto_labels: np.ndarray) -> np.ndarray
     return map_array(cyto_labels.copy(), cyto_ids.copy(), o.argmax(-1).copy())
 
 
-def match_labels(cyto_labels: xr.DataArray, nuc_labels: xr.DataArray) -> xr.DataArray:
+def match_labels(nuc_labels: xr.DataArray, cyto_labels: xr.DataArray) -> xr.DataArray:
     return xr.apply_ufunc(
         _match_labels,
-        cyto_labels,
         nuc_labels,
+        cyto_labels,
         input_core_dims=[list("YX"), list("YX")],
         output_core_dims=[list("YX")],
         vectorize=True,
